@@ -5,14 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node -e \"const fs=require('fs'); if(!fs.existsSync('dist/index.html')){console.error('❌ dist/index.html missing'); process.exit(1)} else {console.log('✅ dist present') }\"",
-    "start": "serve -s dist -l 0.0.0.0:$PORT",
+    "build": "vite build && node -e \"const fs=require('fs'); if(!fs.existsSync('dist/index.html')){console.error('❌ dist/index.html missing'); process.exit(1)} else {console.log('✅ dist present')}\"",
+    "start": "vite preview --host 0.0.0.0 --port $PORT",
     "preview": "vite preview --host 0.0.0.0 --port $PORT"
   },
   "dependencies": {
     "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "serve": "^14.2.1"
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.0.2",
