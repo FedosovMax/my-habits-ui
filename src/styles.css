@@ -109,7 +109,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 
 .cell-check { display: inline-flex; line-height: 1; }
 .cell-check.filled { font-weight: 900; }
-.cell-check.outline { opacity: .45; filter: saturate(70%); }
+.cell-check.outline { opacity: .45; filter: saturate(70%); } 
 
 /* Number input tweaks */
 input[type="number"]::-webkit-outer-spin-button,
