@@ -1,29 +1,13 @@
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { getColorHex } from "./palette.js";
 import { isoDayUTC } from "./retention.js";
 
-// helpers
-function atUtcMidnightMs(d) { return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()); }
-function isWeekend(tsMs) {
-  const d = new Date(tsMs);
-  const wd = d.getUTCDay(); // 0=Sun,6=Sat
-  return wd === 0 || wd === 6;
-}
 const WD = ["Su","Mo","Tu","We","Th","Fr","Sa"];
 
-/** SVG check: filled for done/partial; paler outline for missed */
-function CheckIcon({
-  color,
-  filled,
-  size = 26,
-  outlineOpacity = 0.38,
-  outlineThick = 2.6,
-  thick = 5.2
-}) {
+function CheckIcon({ color, filled, size = 26, outlineOpacity = 0.38, outlineThick = 2.6, thick = 5.2 }) {
   const stroke = color || "#6ea8fe";
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" style={{ display: "block" }}>
-      {filled && <rect x="0" y="0" width="24" height="24" rx="6" ry="6" fill={stroke} opacity="0.28" />}
       <path
         d="M4.5 12.5L9.0 17.0L19.5 6.5"
         fill="none"
@@ -39,26 +23,43 @@ function CheckIcon({
 
 export default function HabitRow({
   habit,
-  strip,            // { "YYYY-MM-DD": {status, valueRaw} }
-  rangeDays,        // columns (today on the left)
-  onToggleCell,     // (habit, dateMs, currentRec) =>
-  onSaveQuestion,   // (habitId, question) =>
-  onSaveDescription // (habitId, description) =>
+  strip,             // { "YYYY-MM-DD": {status, valueRaw} }
+  maxDays = 10,
+  onToggleCell,
+  onSaveQuestion,
+  onSaveDescription
 }) {
   const color = getColorHex(habit?.color);
-  const today = useMemo(() => atUtcMidnightMs(new Date()), []);
-  const days = useMemo(() => {
-    const arr = [];
-    for (let i = 0; i < rangeDays; i++) arr.push(today - i * 86400000);
-    return arr;
-  }, [rangeDays, today]);
 
-  const map = strip || {};
+  // Use media query (reacts to browser zoom) to decide 3 vs 10
+  const isSmall = window.matchMedia("(max-width: 900px)").matches;
+  const [cols, setCols] = useState(isSmall ? 3 : 10);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const handler = (e) => setCols(e.matches ? 3 : 10);
+    mq.addEventListener ? mq.addEventListener("change", handler) : mq.addListener(handler);
+    return () => {
+      mq.removeEventListener ? mq.removeEventListener("change", handler) : mq.removeListener(handler);
+    };
+  }, []);
 
-  // Hidden by default; click row to toggle
+  // Build days list from today backward
+  const daysLocal = useMemo(() => {
+    const desired = Math.min(cols, maxDays);
+    const out = [];
+    let cur = new Date();
+    cur = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate()); // local midnight
+    for (let i = 0; i < desired; i++) {
+      out.push(new Date(cur));
+      cur = new Date(cur.getTime() - 86400000);
+    }
+    return out;
+  }, [cols, maxDays]);
+
+  const rowStyle = useMemo(() => ({ "--cols": String(Math.min(cols, maxDays)) }), [cols, maxDays]);
+
+  // Editors (collapsed by default)
   const [open, setOpen] = useState(false);
-
-  // Independent editors for question & description
   const [editingQ, setEditingQ] = useState(false);
   const [editingD, setEditingD] = useState(false);
   const [qDraft, setQDraft] = useState(habit.question || "");
@@ -90,48 +91,40 @@ export default function HabitRow({
     setEditingD(false);
   };
 
-  const labelFor = (ts) => {
-    const d = new Date(ts);
-    const lab = WD[d.getUTCDay()];
-    const day = String(d.getUTCDate()).padStart(2, "0");
-    return `${lab} ${day}`;
-  };
+  const labelFor = (d) => `${WD[d.getDay()]} ${String(d.getDate()).padStart(2, "0")}`;
+  const localDateToUtcMidnightMs = (d) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
 
   return (
     <div className="habit-row">
-      <div className="row-top" onClick={handleRowClick}>
+      <div className="row-top" style={rowStyle} onClick={handleRowClick}>
         <div className="row-name">
           <span className="dot" style={{ background: color }} />
           <span className="title">{habit.name}</span>
         </div>
 
-        {/* Day labels and cells */}
         <div className="cells">
           <div className="cells-header">
-            {days.map((ts, i) => {
-              const weekend = isWeekend(ts);
-              return (
-                <div key={`h-${i}`} className={`cells-label ${weekend ? "weekend" : ""}`} title={new Date(ts).toUTCString().slice(0,16)}>
-                  {labelFor(ts)}
-                </div>
-              );
-            })}
+            {daysLocal.map((d, i) => (
+              <div key={`h-${i}`} className="cells-label" title={d.toString().slice(0,16)}>
+                {labelFor(d)}
+              </div>
+            ))}
           </div>
 
           <div className="cells-grid">
-            {days.map((ts, i) => {
-              const key = isoDayUTC(ts);
-              const rec = map[key];
-              const weekend = isWeekend(ts);
+            {daysLocal.map((d, i) => {
+              const utcMidnightMs = localDateToUtcMidnightMs(d);
+              const key = isoDayUTC(utcMidnightMs);
+              const rec = (strip || {})[key];
               const status = rec?.status || "missed";
               const isNumeric = Number(habit?.type ?? 0) !== 0;
 
               return (
                 <button
                   key={`c-${i}`}
-                  className={`cell icon-only ${weekend ? "weekend" : ""}`}
-                  title={new Date(ts).toUTCString().slice(0, 16) + (status ? ` — ${status}` : "")}
-                  onClick={(e) => { e.stopPropagation(); onToggleCell?.(habit, ts, rec || null); }}
+                  className="cell icon-only"
+                  title={d.toString().slice(0, 16) + (status ? ` — ${status}` : "")}
+                  onClick={(e) => { e.stopPropagation(); onToggleCell?.(habit, utcMidnightMs, rec || null); }}
                 >
                   {isNumeric ? (
                     (typeof rec?.valueRaw === "number" && rec.valueRaw > 0) ? (
@@ -153,10 +146,8 @@ export default function HabitRow({
         </div>
       </div>
 
-      {/* Collapsible details: Question first, then Description (both editable) */}
       {open && (
         <div className="row-desc">
-          {/* Question */}
           <div className="kv" onDoubleClick={() => setEditingQ(true)}>
             <div className="kv-label">Question</div>
             {!editingQ ? (
@@ -185,7 +176,6 @@ export default function HabitRow({
             )}
           </div>
 
-          {/* Description */}
           <div className="kv" onDoubleClick={() => setEditingD(true)}>
             <div className="kv-label">Description</div>
             {!editingD ? (
@@ -213,12 +203,8 @@ export default function HabitRow({
               </div>
             )}
           </div>
-
-          <div className="desc-hint" style={{ marginTop: 8 }}>
-            Double-click Question or Description to edit.
-          </div>
         </div>
       )}
     </div>
   );
-} 
+}

@@ -12,7 +12,7 @@ const REP_UPSERT = `${API_BASE}/api/repetitions`;
 const REP_DELETE = `${API_BASE}/api/repetitions`;
 const HABIT_PATCH= (id) => `${API_BASE}/api/habits/${id}`;
 
-const RANGE_DAYS = 10; // today + 9 previous
+const MAX_DAYS = 10; // always fetch enough; UI shows 3 or 10 responsively
 
 function atUtcMidnightMs(d) { return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()); }
 function endOfCurrentWeekExclusiveUTC() {
@@ -27,7 +27,6 @@ async function readJson(res){ const ct=res.headers.get("content-type")||""; if(c
 function timestampedFilename(base="Loop_Export"){const pad=n=>String(n).padStart(2,"0");const now=new Date();return `${base}_${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}.db`;}
 function pickArray(payload){ if(Array.isArray(payload))return payload; if(payload && Array.isArray(payload.habits))return payload.habits; return []; }
 
-// Normalize backend variations so UI always has .description and .question
 function normalizeHabit(h) {
   const description =
     h.description ?? h.desc ?? h.details ?? h.note ?? h.notes ?? h.descriptionText ?? "";
@@ -54,7 +53,6 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      // HABITS
       const hRes = await fetch(HABITS_URL, { headers: { Accept: "application/json" }, cache: "no-store" });
       if (!hRes.ok) throw new Error(`Habits: ${hRes.status} ${hRes.statusText} ${await hRes.text().catch(()=> "")}`);
       const habitsRaw = await readJson(hRes);
@@ -63,14 +61,13 @@ export default function App() {
         .sort((a,b) => (a.position ?? 0) - (b.position ?? 0));
       setHabits(h);
 
-      // REPS (window from 9 days ago through end of current week)
+      // fetch last 10 days up to today
       const endExclusive = endOfCurrentWeekExclusiveUTC();
-      const startDate = new Date(); startDate.setDate(startDate.getDate() - (RANGE_DAYS - 1));
+      const startDate = new Date(); startDate.setDate(startDate.getDate() - (MAX_DAYS - 1));
       const from = atUtcMidnightMs(startDate);
       const rRes = await fetch(`${REPS_URL}?from=${from}&to=${endExclusive}`, { headers: { Accept: "application/json" }, cache: "no-store" });
       if (!rRes.ok) throw new Error(`Repetitions: ${rRes.status} ${rRes.statusText} ${await rRes.text().catch(()=> "")}`);
       const reps = await readJson(rRes);
-
       setRetention(buildRetentionMap(h, reps));
     } catch (e) {
       console.error(e);
@@ -84,7 +81,7 @@ export default function App() {
 
   useEffect(() => { if (!didFetch.current) { didFetch.current = true; fetchAll(); } }, []);
 
-  // --- Import / Export ---
+  // Import / Export
   const onPickImport = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
     try {
@@ -127,7 +124,7 @@ export default function App() {
     }
   };
 
-  // --- Repetitions write helpers ---
+  // repetition write helpers
   async function upsertRepetition(habitId, dateMs, valueRaw, notes = null) {
     const res = await fetch(REP_UPSERT, {
       method: "POST",
@@ -160,7 +157,6 @@ export default function App() {
   const handleToggleCell = async (habit, dateMs, currentRec) => {
     try {
       if ((habit?.type ?? 0) === 0) {
-        // boolean: toggle done/missed
         if (currentRec && currentRec.status === "done") {
           updateRetentionLocal(habit, dateMs, null);
           await deleteRepetition(habit.id, dateMs);
@@ -169,7 +165,6 @@ export default function App() {
           await upsertRepetition(habit.id, dateMs, 2);
         }
       } else {
-        // numeric: prompt amount
         const existingAmt = currentRec?.valueRaw ? (currentRec.valueRaw / 1000) : "";
         const input = window.prompt("Enter amount (e.g., 20.0). Leave empty to clear:", existingAmt === "" ? "" : String(existingAmt));
         if (input === null) return;
@@ -192,7 +187,6 @@ export default function App() {
     }
   };
 
-  // --- Save Question / Description ---
   const saveQuestion = async (habitId, question) => {
     const res = await fetch(HABIT_PATCH(habitId), {
       method: "PATCH",
@@ -217,19 +211,17 @@ export default function App() {
     <div className="container">
       <header className="header">
         <h1>Habits</h1>
-        <div className="controls">
-          <div className="controls-row">
-            <button type="button" onClick={() => importInputRef.current?.click()} disabled={importing}>
-              {importing ? "Importing…" : "Import SQLite (.db)"}
-            </button>
-            <input ref={importInputRef} type="file" accept=".db,application/octet-stream" style={{ display: "none" }} onChange={onPickImport} />
-            <button type="button" onClick={onClickExport} disabled={exporting}>
-              {exporting ? "Exporting…" : "Export SQLite (.db)"}
-            </button>
-            <button type="button" onClick={() => fetchAll()} disabled={loading} title="Reload">
-              {loading ? "Reloading…" : "Reload"}
-            </button>
-          </div>
+        <div className="controls-row">
+          <button type="button" onClick={() => importInputRef.current?.click()} disabled={importing}>
+            {importing ? "Importing…" : "Import SQLite (.db)"}
+          </button>
+          <input ref={importInputRef} type="file" accept=".db,application/octet-stream" style={{ display:"none" }} onChange={onPickImport} />
+          <button type="button" onClick={onClickExport} disabled={exporting}>
+            {exporting ? "Exporting…" : "Export SQLite (.db)"}
+          </button>
+          <button type="button" onClick={() => fetchAll()} disabled={loading} title="Reload">
+            {loading ? "Reloading…" : "Reload"}
+          </button>
         </div>
       </header>
 
@@ -243,7 +235,7 @@ export default function App() {
           <HabitRow
             key={h.id}
             habit={h}
-            rangeDays={RANGE_DAYS}
+            maxDays={MAX_DAYS}
             strip={retention[h.id] || {}}
             onToggleCell={handleToggleCell}
             onSaveQuestion={saveQuestion}
@@ -253,4 +245,4 @@ export default function App() {
       </section>
     </div>
   );
-} 
+}
