@@ -4,6 +4,14 @@ import { isoDayUTC } from "./retention.js";
 
 const WD = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
+// adjust this list if your palette has a different size
+const COLOR_IDS = [
+  0, 1, 2, 3,
+  4, 5, 6, 7,
+  8, 9, 10, 11,
+  12, 13, 14, 15
+];
+
 function CheckIcon({
   color,
   filled,
@@ -40,8 +48,10 @@ export default function HabitRow({
   maxDays = 10,
   onToggleCheck,
   onSetAmount,
+  onSaveName,
   onSaveQuestion,
   onSaveDescription,
+  onSaveColor,
   onArchive,
   onUnarchive,
   // drag & drop props from App.jsx
@@ -97,19 +107,29 @@ export default function HabitRow({
 
   // Collapsible editors
   const [open, setOpen] = useState(false);
+  const [editingName, setEditingName] = useState(false);
   const [editingQ, setEditingQ] = useState(false);
   const [editingD, setEditingD] = useState(false);
+  const [nameDraft, setNameDraft] = useState(habit.name || "");
   const [qDraft, setQDraft] = useState(habit.question || "");
   const [dDraft, setDDraft] = useState(habit.description || "");
+  const nameRef = useRef(null);
   const qRef = useRef(null);
   const dRef = useRef(null);
 
+  useEffect(() => {
+    setNameDraft(habit.name || "");
+  }, [habit.name]);
   useEffect(() => {
     setQDraft(habit.question || "");
   }, [habit.question]);
   useEffect(() => {
     setDDraft(habit.description || "");
   }, [habit.description]);
+
+  useEffect(() => {
+    if (editingName) nameRef.current?.focus();
+  }, [editingName]);
   useEffect(() => {
     if (editingQ) qRef.current?.focus();
   }, [editingQ]);
@@ -119,9 +139,38 @@ export default function HabitRow({
 
   const handleRowClick = (e) => {
     if (dragActive) return; // don’t toggle while dragging
+
+    // avoid toggling row when interacting with inputs / cells
     const tag = (e.target.tagName || "").toLowerCase();
-    if (tag === "button" || tag === "input" || e.target.closest(".cells")) return;
+    if (
+      tag === "button" ||
+      tag === "input" ||
+      tag === "textarea" ||
+      e.target.closest(".cells")
+    )
+      return;
+
     setOpen((v) => !v);
+  };
+
+  const saveNameLocal = async () => {
+    const next = (nameDraft ?? "").trim();
+    const current = (habit.name || "").trim();
+
+    if (!next) {
+      // empty name -> cancel and restore
+      setNameDraft(habit.name || "");
+      setEditingName(false);
+      return;
+    }
+
+    if (next === current) {
+      setEditingName(false);
+      return;
+    }
+
+    await onSaveName?.(habit.id, next);
+    setEditingName(false);
   };
 
   const saveQ = async () => {
@@ -204,7 +253,7 @@ export default function HabitRow({
     >
       <div className="row-top" style={rowStyle} onClick={handleRowClick}>
         <div className="row-name">
-          {/* This is the drag handle you should see */}
+          {/* Drag handle */}
           <span
             className="drag-handle"
             draggable
@@ -216,14 +265,47 @@ export default function HabitRow({
           </span>
 
           <span className="dot" style={{ background: color }} />
-          <span className="title">
-            {habit.name}
-            {habit.archived && (
-              <span className="arch-badge" title="Archived">
-                Archived
-              </span>
-            )}
-          </span>
+
+          {!editingName ? (
+            <span
+              className="title"
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                if (habit.archived) return; // optionally block rename for archived
+                setEditingName(true);
+                setNameDraft(habit.name || "");
+              }}
+              title="Double-click to rename"
+            >
+              {habit.name}
+              {habit.archived && (
+                <span className="arch-badge" title="Archived">
+                  Archived
+                </span>
+              )}
+            </span>
+          ) : (
+            <input
+              ref={nameRef}
+              className="title-input"
+              value={nameDraft}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={saveNameLocal}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  saveNameLocal();
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setEditingName(false);
+                  setNameDraft(habit.name || "");
+                }
+              }}
+              placeholder="Habit name"
+            />
+          )}
         </div>
 
         <div className="cells">
@@ -271,9 +353,7 @@ export default function HabitRow({
                       >
                         <CheckIcon
                           color={color}
-                          filled={
-                            status === "done" || status === "partial"
-                          }
+                          filled={status === "done" || status === "partial"}
                           size={24}
                         />
                       </span>
@@ -301,10 +381,7 @@ export default function HabitRow({
                         >
                           {typeof rec?.valueRaw === "number" &&
                           rec.valueRaw > 0 ? (
-                            <span
-                              className="cell-num"
-                              style={{ color }}
-                            >
+                            <span className="cell-num" style={{ color }}>
                               {displayFromRaw(rec.valueRaw)}
                             </span>
                           ) : (
@@ -366,10 +443,7 @@ export default function HabitRow({
             <div className="kv" onDoubleClick={() => setEditingQ(true)}>
               <div className="kv-label">Question</div>
               {!editingQ ? (
-                <div
-                  className="kv-value"
-                  style={{ whiteSpace: "pre-wrap" }}
-                >
+                <div className="kv-value" style={{ whiteSpace: "pre-wrap" }}>
                   {(habit.question && habit.question.trim()) || "—"}
                 </div>
               ) : (
@@ -392,10 +466,7 @@ export default function HabitRow({
                     }}
                     rows={Math.min(
                       6,
-                      Math.max(
-                        2,
-                        (qDraft.match(/\n/g)?.length || 0) + 1
-                      )
+                      Math.max(2, (qDraft.match(/\n/g)?.length || 0) + 1)
                     )}
                     placeholder="Type question… (⌘/Ctrl+Enter to save, Esc to cancel)"
                   />
@@ -417,12 +488,8 @@ export default function HabitRow({
             <div className="kv" onDoubleClick={() => setEditingD(true)}>
               <div className="kv-label">Description</div>
               {!editingD ? (
-                <div
-                  className="kv-value"
-                  style={{ whiteSpace: "pre-wrap" }}
-                >
-                  {(habit.description &&
-                    habit.description.trim()) || "—"}
+                <div className="kv-value" style={{ whiteSpace: "pre-wrap" }}>
+                  {(habit.description && habit.description.trim()) || "—"}
                 </div>
               ) : (
                 <div className="desc-editor">
@@ -444,10 +511,7 @@ export default function HabitRow({
                     }}
                     rows={Math.min(
                       6,
-                      Math.max(
-                        2,
-                        (dDraft.match(/\n/g)?.length || 0) + 1
-                      )
+                      Math.max(2, (dDraft.match(/\n/g)?.length || 0) + 1)
                     )}
                     placeholder="Type description… (⌘/Ctrl+Enter to save, Esc to cancel)"
                   />
@@ -494,6 +558,34 @@ export default function HabitRow({
                 Restore
               </button>
             )}
+
+            {/* Color picker directly under Archive/Restore */}
+            <div className="color-picker">
+              <div className="kv-label">Color</div>
+              <div className="color-picker-row">
+                {COLOR_IDS.map((colorId) => {
+                  const hex = getColorHex(colorId);
+                  const selected = colorId === (habit.color ?? 0);
+                  return (
+                    <button
+                      key={colorId}
+                      type="button"
+                      className={
+                        "color-dot" + (selected ? " selected" : "")
+                      }
+                      style={{ backgroundColor: hex }}
+                      title={`Set color #${colorId}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (colorId !== habit.color) {
+                          onSaveColor?.(habit.id, colorId);
+                        }
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            </div>
 
             <div className="actions-spacer" />
           </div>

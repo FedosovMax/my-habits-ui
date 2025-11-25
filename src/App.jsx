@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import "./styles.css";
 import HabitRow from "./HabitRow.jsx";
 import { buildRetentionMap, isoDayUTC, classifyStatus } from "./retention.js";
+import { getColorHex } from "./palette.js";
 
 const API_BASE =
   (import.meta.env && import.meta.env.VITE_API_BASE) || "http://localhost:8080";
@@ -15,6 +16,14 @@ const REP_DELETE = `${API_BASE}/api/repetitions`;
 const HABIT_PATCH = (id) => `${API_BASE}/api/habits/${id}`;
 
 const MAX_DAYS = 10;
+
+// adjust this list if your palette has a different size
+const COLOR_IDS = [
+  0, 1, 2, 3,
+  4, 5, 6, 7,
+  8, 9, 10, 11,
+  12, 13, 14, 15,
+];
 
 // ----- small helpers -----
 function atUtcMidnightMs(d) {
@@ -68,10 +77,32 @@ function normalizeHabit(h) {
 
   return {
     ...h,
-    description: typeof description === "string" ? description : String(description ?? ""),
-    question: typeof question === "string" ? question : String(question ?? ""),
+    description:
+      typeof description === "string"
+        ? description
+        : String(description ?? ""),
+    question:
+      typeof question === "string" ? question : String(question ?? ""),
     archived: Boolean(h.archived ?? h.isArchived ?? false),
   };
+}
+
+function getNextColorId(existingHabits) {
+  if (!existingHabits || existingHabits.length === 0) {
+    return COLOR_IDS[0] ?? 0;
+  }
+  const used = new Set(
+    existingHabits
+      .map((h) => h.color)
+      .filter((c) => typeof c === "number")
+  );
+  for (const id of COLOR_IDS) {
+    if (!used.has(id)) return id;
+  }
+  const lastColor = existingHabits[existingHabits.length - 1].color ?? 0;
+  const idx = COLOR_IDS.indexOf(lastColor);
+  if (idx === -1) return COLOR_IDS[0] ?? 0;
+  return COLOR_IDS[(idx + 1) % COLOR_IDS.length];
 }
 
 export default function App() {
@@ -89,6 +120,17 @@ export default function App() {
   // ---- drag & drop state ----
   const [draggingId, setDraggingId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
+
+  // ---- create habit modal state ----
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newHabitDraft, setNewHabitDraft] = useState({
+    name: "",
+    question: "",
+    description: "",
+    type: 0, // 0 = checkbox, !=0 = numeric
+    color: 0,
+  });
 
   // ----- load data -----
   const fetchAll = async () => {
@@ -170,7 +212,9 @@ export default function App() {
       const res = await fetch(IMPORT_URL, { method: "POST", body: fd });
       const text = await res.text().catch(() => "");
       if (!res.ok) {
-        throw new Error(text || `Import failed: ${res.status} ${res.statusText}`);
+        throw new Error(
+          text || `Import failed: ${res.status} ${res.statusText}`
+        );
       }
       await fetchAll();
       alert(text || "Import completed.");
@@ -401,6 +445,25 @@ export default function App() {
     );
   };
 
+  const saveName = async (habitId, name) => {
+    const res = await fetch(HABIT_PATCH(habitId), {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) {
+      throw new Error(await res.text().catch(() => `Failed ${res.status}`));
+    }
+    setHabits((prev) =>
+      prev.map((h) =>
+        h.id === habitId ? normalizeHabit({ ...h, name }) : h
+      )
+    );
+  };
+
   const saveQuestion = async (habitId, question) => {
     const res = await fetch(HABIT_PATCH(habitId), {
       method: "PATCH",
@@ -439,7 +502,111 @@ export default function App() {
     );
   };
 
+  const saveColor = async (habitId, colorIndex) => {
+    const res = await fetch(HABIT_PATCH(habitId), {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ color: colorIndex }),
+    });
+    if (!res.ok) {
+      throw new Error(await res.text().catch(() => `Failed ${res.status}`));
+    }
+    setHabits((prev) =>
+      prev.map((h) =>
+        h.id === habitId ? normalizeHabit({ ...h, color: colorIndex }) : h
+      )
+    );
+  };
+
   const dragActive = Boolean(draggingId);
+
+  // ----- Create habit modal helpers -----
+  const openCreateModal = () => {
+    setNewHabitDraft({
+      name: "",
+      question: "",
+      description: "",
+      type: 0,
+      color: getNextColorId(habits),
+    });
+    setShowCreateModal(true);
+  };
+
+  const closeCreateModal = () => {
+    if (creating) return;
+    setShowCreateModal(false);
+  };
+
+  const handleCreateSubmit = async (e) => {
+    e.preventDefault();
+    const name = (newHabitDraft.name || "").trim();
+    if (!name) {
+      alert("Please enter a habit name.");
+      return;
+    }
+
+    const payload = {
+      name,
+      question: newHabitDraft.question || "",
+      description: newHabitDraft.description || "",
+      type: Number(newHabitDraft.type) || 0,
+      color: newHabitDraft.color ?? 0,
+      archived: false,
+    };
+
+    const maxPosition = habits.reduce(
+      (max, h) => Math.max(max, h.position ?? 0),
+      0
+    );
+    if (maxPosition > 0) {
+      payload.position = maxPosition + 100;
+    }
+
+    try {
+      setCreating(true);
+      const res = await fetch(HABITS_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(
+          text || `Create failed: ${res.status} ${res.statusText}`
+        );
+      }
+
+      const createdPayload = await readJson(res);
+      const createdHabit = normalizeHabit(
+        Array.isArray(createdPayload) ? createdPayload[0] : createdPayload
+      );
+
+      if (!createdHabit.id) {
+        // fallback – should not normally happen
+        await fetchAll();
+      } else {
+        setHabits((prev) => {
+          const merged = [...prev, createdHabit];
+          return merged.sort(
+            (a, b) => (a.position ?? 0) - (b.position ?? 0)
+          );
+        });
+      }
+
+      setShowCreateModal(false);
+    } catch (e) {
+      console.error(e);
+      alert(e?.message || String(e));
+    } finally {
+      setCreating(false);
+    }
+  };
 
   // ----- render -----
   return (
@@ -462,13 +629,19 @@ export default function App() {
             style={{ display: "none" }}
             onChange={onPickImport}
           />
-          <button
-            type="button"
-            onClick={onClickExport}
-            disabled={exporting}
-          >
+          <button type="button" onClick={onClickExport} disabled={exporting}>
             {exporting ? "Exporting…" : "Export SQLite (.db)"}
           </button>
+
+          <button
+            type="button"
+            onClick={openCreateModal}
+            disabled={loading || importing || exporting}
+            title="Create a new habit"
+          >
+            New habit
+          </button>
+
           <button
             type="button"
             onClick={() => fetchAll()}
@@ -506,8 +679,10 @@ export default function App() {
             strip={retention[h.id] || {}}
             onToggleCheck={handleToggleCheck}
             onSetAmount={handleSetAmount}
+            onSaveName={saveName}
             onSaveQuestion={saveQuestion}
             onSaveDescription={saveDescription}
+            onSaveColor={saveColor}
             onArchive={(id) => setArchived(id, true)}
             onUnarchive={(id) => setArchived(id, false)}
             // drag & drop props
@@ -522,6 +697,127 @@ export default function App() {
           />
         ))}
       </section>
+
+      {showCreateModal && (
+        <div className="modal-backdrop" onClick={closeCreateModal}>
+          <div
+            className="modal-panel"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="modal-title">Create habit</h2>
+            <form onSubmit={handleCreateSubmit}>
+              <div className="modal-body">
+                <div className="form-row">
+                  <label className="form-label">Name</label>
+                  <input
+                    className="form-input"
+                    autoFocus
+                    value={newHabitDraft.name}
+                    onChange={(e) =>
+                      setNewHabitDraft((prev) => ({
+                        ...prev,
+                        name: e.target.value,
+                      }))
+                    }
+                    placeholder="e.g. Morning walk"
+                  />
+                </div>
+
+                <div className="form-row-inline">
+                  <div className="form-row">
+                    <label className="form-label">Type</label>
+                    <select
+                      className="form-select"
+                      value={newHabitDraft.type}
+                      onChange={(e) =>
+                        setNewHabitDraft((prev) => ({
+                          ...prev,
+                          type: Number(e.target.value) || 0,
+                        }))
+                      }
+                    >
+                      <option value={0}>Check (done / not done)</option>
+                      <option value={1}>Numeric amount</option>
+                    </select>
+                  </div>
+
+                  <div className="form-row">
+                    <label className="form-label">Color</label>
+                    <div className="color-picker-row">
+                      {COLOR_IDS.map((colorId) => {
+                        const hex = getColorHex(colorId);
+                        const selected = colorId === (newHabitDraft.color ?? 0);
+                        return (
+                          <button
+                            key={colorId}
+                            type="button"
+                            className={
+                              "color-dot" + (selected ? " selected" : "")
+                            }
+                            style={{ backgroundColor: hex }}
+                            title={`Color #${colorId}`}
+                            onClick={() =>
+                              setNewHabitDraft((prev) => ({
+                                ...prev,
+                                color: colorId,
+                              }))
+                            }
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <label className="form-label">Question</label>
+                  <textarea
+                    className="form-textarea"
+                    value={newHabitDraft.question}
+                    onChange={(e) =>
+                      setNewHabitDraft((prev) => ({
+                        ...prev,
+                        question: e.target.value,
+                      }))
+                    }
+                    placeholder="Optional question shown under the habit…"
+                    rows={2}
+                  />
+                </div>
+
+                <div className="form-row">
+                  <label className="form-label">Description</label>
+                  <textarea
+                    className="form-textarea"
+                    value={newHabitDraft.description}
+                    onChange={(e) =>
+                      setNewHabitDraft((prev) => ({
+                        ...prev,
+                        description: e.target.value,
+                      }))
+                    }
+                    placeholder="Optional longer description…"
+                    rows={3}
+                  />
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  onClick={closeCreateModal}
+                  disabled={creating}
+                >
+                  Cancel
+                </button>
+                <button type="submit" disabled={creating}>
+                  {creating ? "Creating…" : "Create habit"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

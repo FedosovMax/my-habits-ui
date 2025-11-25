@@ -40,6 +40,10 @@ button {
   background:var(--panel-2); color:var(--text); border:1px solid var(--border);
   border-radius:10px; padding:8px 12px; cursor:pointer;
 }
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 .toggle { display:flex; align-items:center; gap:8px; user-select:none; }
 .toggle input { accent-color:#3b82f6; }
 
@@ -151,6 +155,21 @@ button {
   border-radius:999px; padding:2px 8px;
 }
 
+/* Editable habit name input */
+.row-name .title-input {
+  font: inherit;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px 6px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  outline: none;
+}
+
 /* Day labels & cells */
 .cells { overflow: visible; }
 .cells-header,
@@ -237,3 +256,124 @@ button {
   border:1px solid var(--border); border-radius:8px; padding:8px 10px; resize:vertical;
 }
 .desc-actions { margin-top:8px; display:flex; gap:8px; }
+
+/* Color picker in expanded row (right side, under archive button) */
+.color-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.color-picker-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 140px;
+}
+
+.color-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid rgba(15, 23, 42, 0.9);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+  padding: 0;
+  cursor: pointer;
+  background-clip: padding-box;
+}
+
+.color-dot.selected {
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.9),
+    0 0 0 3px rgba(59, 130, 246, 0.9);
+}
+
+.color-dot:focus-visible {
+  outline: 2px solid #facc15;
+  outline-offset: 2px;
+}
+
+/* ---------- Modal: create habit ---------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 7, 18, 0.8);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+
+.modal-panel {
+  width: 100%;
+  max-width: 520px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.85);
+  padding: 18px 20px 16px;
+}
+
+.modal-title {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.form-row-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.form-label {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.form-input,
+.form-select,
+.form-textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  outline: none;
+}
+
+.form-input:focus,
+.form-select:focus,
+.form-textarea:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.7);
+}
+
+.form-textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.modal-footer {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
